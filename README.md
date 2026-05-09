@@ -76,7 +76,7 @@ saved_models/   plots/
 
 - Bonus model. Long-stay Recall is the per-class recall on the Long (≥ 8 d) cohort — the most clinically critical metric.
 
-> Full methodology, confusion-matrix analysis, and feature-importance breakdown are in the [technical report](report/CSE271_Hospital_LOS_Prediction_Report.pdf).
+> Full methodology, confusion-matrix analysis, and feature-importance breakdown are in the [technical report](CSE271_Hospital_LOS_Prediction_Report.pdf).
 
 ---
 

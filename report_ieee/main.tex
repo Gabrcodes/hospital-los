@@ -58,7 +58,7 @@
 %  Abstract
 % ─────────────────────────────────────────────
 \begin{abstract}
-Hospital bed management is one of the most critical operational challenges in modern healthcare. Accurately predicting how long a patient will remain hospitalised at the point of admission enables earlier discharge planning, more efficient staffing, and tighter resource allocation. We present a complete machine-learning framework for predicting Length of Stay (LOS) using the Microsoft Hospital LOS dataset, a clinical dataset of \DSROWS{} de-identified inpatient encounters published on Kaggle. Two complementary tasks are addressed: a regression task targeting exact LOS in days using Linear Regression, a Decision Tree, Random Forest and XGBoost; and a three-class classification task that bins LOS into Short (0--3~d), Medium (4--7~d), and Long ($\ge 8$~d) groups using Logistic Regression, $k$-Nearest Neighbours, a Support Vector Machine, and a Multi-Layer Perceptron. The best regressor, XGBoost, achieves $R^{2}=$\REGBESTRTWO{} with an RMSE of \REGBESTRMSE{} days; the best classifier, the MLP, achieves an accuracy of \CLFBESTACC{} and a weighted F1-score of \CLFBESTFONE{}. Feature-importance analysis identifies prior readmission count, psychological-disorder flags, and a small panel of hematological comorbidities as the dominant drivers of extended stay --- a set small enough to be captured by a two-minute admission triage screen. Findings are exposed through an interactive Streamlit dashboard that supports cohort filtering and per-patient inference, demonstrating a practical path toward an admission-day clinical decision support tool.
+Hospital bed management is one of the most critical operational challenges in modern healthcare. Accurately predicting how long a patient will remain hospitalised at the point of admission enables earlier discharge planning, more efficient staffing, and tighter resource allocation. We present a complete machine-learning framework for predicting Length of Stay (LOS) using the Microsoft Hospital LOS dataset, a clinical dataset of \DSROWS{} de-identified inpatient encounters published on Kaggle. Two complementary tasks are addressed: a regression task targeting exact LOS in days using Linear Regression, a Decision Tree, Random Forest and XGBoost; and a three-class classification task that bins LOS into Short (0--3~d), Medium (4--7~d), and Long ($\ge 8$~d) groups using Logistic Regression, $k$-Nearest Neighbours, a Linear Support Vector Machine, a Random Forest classifier, and a Multi-Layer Perceptron. The best regressor (\REGBESTNAME) achieves $R^{2}=$\REGBESTRTWO{} with an RMSE of \REGBESTRMSE{} days; the best classifier (\CLFBESTNAME) achieves an accuracy of \CLFBESTACC{} and a weighted F1-score of \CLFBESTFONE. Feature-importance analysis identifies prior readmission count, psychological-disorder flags, and a small panel of hematological comorbidities as the dominant drivers of extended stay --- a set small enough to be captured by a two-minute admission triage screen. Findings are exposed through an interactive Streamlit dashboard that supports cohort filtering and per-patient inference, demonstrating a practical path toward an admission-day clinical decision support tool.
 \end{abstract}
 
 \noindent\textbf{Keywords:} length of stay, hospital management, machine learning, regression, classification, XGBoost, neural networks, healthcare analytics, decision support.
@@ -84,7 +84,7 @@ In the classification literature, neural networks and ensemble methods have prov
 The contributions of this work are:
 \begin{enumerate}
   \item A regression pipeline predicting LOS in days using four models split between the lecture syllabus (Linear Regression, Decision Tree) and bonus extensions (Random Forest, XGBoost).
-  \item A three-class classification pipeline using four models, again split between syllabus (Logistic Regression, $k$-Nearest Neighbours) and bonus (SVM, Multi-Layer Perceptron).
+  \item A three-class classification pipeline using five models, split between syllabus (Logistic Regression, $k$-Nearest Neighbours) and bonus (Linear SVM, Random Forest classifier, Multi-Layer Perceptron).
   \item A reproducible exploratory data analysis covering the LOS distribution, class imbalance, and per-feature correlations with the target.
   \item A consistent comparative evaluation of all eight models on a fixed 80/20 split using metric-appropriate criteria, with confusion-matrix-level error analysis for the classifiers.
   \item Identification of the dominant clinical drivers of LOS, mapped to a candidate five-question admission triage screen.
@@ -151,18 +151,18 @@ File size        & \(\sim\)12 MB CSV \\
 \end{table}
 
 \subsection{Preprocessing}
-A single deterministic preprocessing pipeline was applied identically to every model in order to avoid comparison artefacts:
+A single deterministic preprocessing pipeline was applied identically to every model. Crucially the preprocessing was implemented as a scikit-learn \texttt{ColumnTransformer} and embedded inside each model's \texttt{Pipeline}, so that imputation, scaling, and encoding are fitted on the training fold only --- preventing data leakage from the test fold. The pipeline performs:
 \begin{itemize}
-  \item \textbf{Leakage column removal.} The columns \texttt{eid} (patient identifier), \texttt{vdate} (admission date), \texttt{discharged} (discharge date --- a direct target leak), and \texttt{facid} (facility identifier) were dropped before training.
-  \item \textbf{Train/test split.} 80\% / 20\% with a fixed random seed of 42, identical for both the regression and classification tasks.
-  \item \textbf{Missing-value imputation.} Numeric columns were imputed with the column median. The total proportion of missing values was below 2\%.
-  \item \textbf{Categorical encoding.} Yes/No fields were mapped to $\{0,1\}$; remaining categoricals (notably \texttt{rcount} and \texttt{gender}) were label-encoded.
-  \item \textbf{Numeric scaling.} All features were standardised to zero mean and unit variance using \texttt{StandardScaler}. This is essential for $k$-NN, SVM and MLP, and harmless for tree-based models.
-  \item \textbf{Target engineering.} For the classification task LOS was binned into three classes: Short ($\le 3$ days, class 0), Medium (4--7 days, class 1), and Long ($\ge 8$ days, class 2).
+  \item \textbf{Leakage column removal.} The columns \texttt{eid} (patient identifier), \texttt{vdate} (admission date), \texttt{discharged} (discharge date --- a direct target leak), and \texttt{facid} (facility identifier) are dropped before training.
+  \item \textbf{Train/test split.} 80\% / 20\% with random seed 42 and \texttt{stratify=y\_clf} so that the three LOS classes retain their proportions in both folds.
+  \item \textbf{Missing-value imputation.} Numeric columns are imputed with the column median; categoricals with the column mode.
+  \item \textbf{Categorical encoding.} Categorical features (notably \texttt{rcount} and \texttt{gender}) are one-hot encoded with \texttt{handle\_unknown='ignore'}. One-hot encoding avoids implying a numeric ordering across class levels.
+  \item \textbf{Numeric scaling.} Numeric features are standardised to zero mean and unit variance with \texttt{StandardScaler}. This is essential for $k$-NN, SVM and the MLP, and harmless for tree-based models.
+  \item \textbf{Target engineering.} For the classification task LOS is binned into three classes: Short ($\le 3$ days, class 0), Medium (4--7 days, class 1), and Long ($\ge 8$ days, class 2).
 \end{itemize}
 
 \subsection{Models}
-Eight models were trained in total --- four regressors and four classifiers --- summarised in Table~\ref{tab:models}. Each task pairs two syllabus models (the minimum required by the project rubric) with two bonus models that extend the analysis beyond the lecture scope. The syllabus baselines establish a minimum-performance bar and a benchmark against which the bonus models are judged. Hyper-parameters were chosen by light grid search and held fixed for the comparative evaluation in Section~\ref{sec:results}.
+Nine models were trained in total --- four regressors and five classifiers --- summarised in Table~\ref{tab:models}. Each task pairs two syllabus models (the minimum required by the project rubric) with bonus models that extend the analysis beyond the lecture scope. The syllabus baselines establish a minimum-performance bar against which the bonus models are judged. Hyper-parameters were chosen by light grid search and held fixed for the comparative evaluation in Section~\ref{sec:results}.
 
 \begin{table}[!t]
 \caption{Models, role and selection rationale. \emph{B} denotes a bonus model beyond the lecture scope.}
@@ -180,10 +180,11 @@ Random Forest (100 trees)  & B     & Bagging ensemble; reduces overfitting and e
 XGBoost (100 trees)        & B     & State-of-the-art gradient boosting on tabular data~\cite{chen2016xgboost,friedman2001gbm}. \\
 \midrule
 \multicolumn{3}{l}{\textit{Classification --- target: \{Short, Medium, Long\}}} \\
-Logistic Regression          &     & Probabilistic baseline; interpretable coefficients~\cite{cox1958logistic}. \\
-$k$-Nearest Neighbours ($k$=5) &   & Instance-based, non-parametric; captures local structure. \\
-SVM (RBF kernel)             & B   & Margin-maximising; robust to high-dimensional features~\cite{cortes1995svm}. \\
-Multi-Layer Perceptron \mbox{(64, 32)} & B & Two hidden layers, ReLU, Adam; non-linear hierarchical representation~\cite{rumelhart1986backprop}. \\
+Logistic Regression           &   & Probabilistic baseline; interpretable coefficients~\cite{cox1958logistic}. \\
+$k$-Nearest Neighbours ($k$=7) &   & Instance-based, non-parametric; captures local structure. \\
+Linear SVM (\texttt{class\_weight=balanced}) & B & Margin-maximising; class weighting addresses the Long-stay minority~\cite{cortes1995svm}. \\
+Random Forest classifier (140 trees) & B & Bagging ensemble; robust to imbalance and interpretable via feature importance~\cite{breiman2001randomforest}. \\
+Multi-Layer Perceptron \mbox{(64, 32)} & B & Two hidden layers, ReLU, Adam, early stopping; non-linear hierarchical representation~\cite{rumelhart1986backprop}. \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -275,30 +276,31 @@ The XGBoost actual-versus-predicted scatter in Fig.~\ref{fig:actual_vs_pred} sho
 \end{figure}
 
 \subsection{Classification Results}
-Classification performance is summarised in Table~\ref{tab:clf_results} and Fig.~\ref{fig:clf_compare}. The Multi-Layer Perceptron is the strongest classifier with an accuracy of \CLFBESTACC{} and a weighted F1-score of \CLFBESTFONE. Logistic Regression and $k$-Nearest Neighbours sit on a syllabus-baseline plateau near 0.80; each bonus model then delivers an incremental improvement, with SVM at \CLFSVMACC{} accuracy and the MLP narrowly winning overall. \emph{Clinical interpretation:} the MLP correctly classifies roughly 91 of every 100 patients into the right risk group at admission. For a 1{,}000-patient hospital month, that is approximately 165 more patients receiving correct bed-management planning from Day~1 compared with the Logistic Regression baseline.
+Classification performance is summarised in Table~\ref{tab:clf_results} and Fig.~\ref{fig:clf_compare}. The Multi-Layer Perceptron is the strongest classifier with an accuracy of \CLFBESTACC{} and a weighted F1-score of \CLFBESTFONE. Logistic Regression and $k$-Nearest Neighbours sit on a syllabus-baseline plateau near 0.80, with the Linear SVM slightly below at \CLFSVMACC{} accuracy --- the SVM trades a small drop in headline accuracy for a markedly higher Long-stay recall (\CLFSVMLREC) thanks to class-balanced loss weighting. The Random Forest classifier closes most of the bonus-model gap (accuracy \CLFRFCACC, weighted F1 \CLFRFCFON, Long-stay recall \CLFRFCLREC), and the MLP narrowly wins overall. \emph{Clinical interpretation:} the MLP correctly classifies roughly nine in ten admitted patients into the right risk group, and crucially recovers \CLFBESTLREC{} of the high-cost Long-stay cohort --- a clinically meaningful improvement over the syllabus baselines, which miss most Long-stay patients.
 
 \begin{figure}[!t]
 \centering
 \includegraphics[width=0.7\textwidth]{fig07_classification_compare.pdf}
-\caption{Classification accuracy and weighted F1 across the four classifiers.}
+\caption{Classification accuracy and weighted F1 across the five classifiers.}
 \label{fig:clf_compare}
 \end{figure}
 
 \begin{table}[!t]
-\caption{Classification performance. Best result in bold.}
+\caption{Classification performance. Best result in bold. Long Rec.\ is the per-class recall on the Long-stay class --- the most clinically informative single number.}
 \label{tab:clf_results}
 \centering
 \renewcommand{\arraystretch}{1.15}
-\begin{tabular}{lcccc}
+\begin{tabular}{lccccc}
 \toprule
-\textbf{Model} & \textbf{Acc.} & \textbf{Prec.} & \textbf{Recall} & \textbf{F1} \\
+\textbf{Model} & \textbf{Acc.} & \textbf{Prec.} & \textbf{Recall} & \textbf{F1} & \textbf{Long Rec.} \\
 \midrule
-Logistic Regression       & \CLFLRACC  & \CLFLRPRE  & \CLFLRREC  & \CLFLRFON \\
-$k$-Nearest Neighbours    & \CLFKNNACC & \CLFKNNPRE & \CLFKNNREC & \CLFKNNFON \\
-SVM*                      & \CLFSVMACC & \CLFSVMPRE & \CLFSVMREC & \CLFSVMFON \\
-\textbf{MLP*}             & \textbf{\CLFMLPACC} & \textbf{\CLFMLPPRE} & \textbf{\CLFMLPREC} & \textbf{\CLFMLPFON} \\
+Logistic Regression           & \CLFLRACC  & \CLFLRPRE  & \CLFLRREC  & \CLFLRFON  & \CLFLRLREC  \\
+$k$-Nearest Neighbours        & \CLFKNNACC & \CLFKNNPRE & \CLFKNNREC & \CLFKNNFON & \CLFKNNLREC \\
+Linear SVM*                   & \CLFSVMACC & \CLFSVMPRE & \CLFSVMREC & \CLFSVMFON & \CLFSVMLREC \\
+Random Forest*                & \CLFRFCACC & \CLFRFCPRE & \CLFRFCREC & \CLFRFCFON & \CLFRFCLREC \\
+\textbf{MLP*}                 & \textbf{\CLFMLPACC} & \textbf{\CLFMLPPRE} & \textbf{\CLFMLPREC} & \textbf{\CLFMLPFON} & \textbf{\CLFMLPLREC} \\
 \bottomrule
-\multicolumn{5}{l}{\footnotesize *Bonus model.\quad Precision/Recall/F1 are weighted.} \\
+\multicolumn{6}{l}{\footnotesize *Bonus model.\quad Precision / Recall / F1 are weighted across the three classes.} \\
 \end{tabular}
 \end{table}
 
@@ -367,7 +369,7 @@ Future directions follow directly from the limitations above: synthetic minority
 
   \item \textbf{Mohamed Sameh (23-101051).} Developed and tuned the regression models, including XGBoost and Random Forest. Designed the feature-engineering pipeline, contributed to performance evaluation and analysis, and supported preprocessing decisions around leakage column handling.
 
-  \item \textbf{Yassin Sherif (23-101269).} Developed and tuned the classification models, including the Support Vector Machine and the Multi-Layer Perceptron. Performed the confusion-matrix analysis, handled model comparison and hyper-parameter selection, and contributed to dashboard functionality and end-to-end testing.
+  \item \textbf{Yassin Sherif (23-101269).} Developed and tuned the classification models, including the Linear Support Vector Machine, the Random Forest classifier, and the Multi-Layer Perceptron. Performed the confusion-matrix analysis, handled model comparison and hyper-parameter selection, and contributed to dashboard functionality and end-to-end testing.
 
   \item \textbf{Abdelrahman Gabr (23-101040).} Authored this technical report and managed the GitHub repository. Conducted the exploratory data analysis and the feature-importance analysis presented in Section~\ref{sec:feature_importance}. Performed the end-to-end project audit: verified that the report's reported metrics match the executed pipeline output stored in \texttt{metrics.json}, reconciled discrepancies between the codebase and the report (notably the model-count alignment and the elimination of a previously claimed Random Forest Classifier that was not implemented), and produced the AI-tool usage log in Appendix~\ref{app:ai}. Also contributed to dataset preprocessing validation and the project video.
 \end{itemize}

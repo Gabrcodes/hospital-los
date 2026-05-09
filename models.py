@@ -1,333 +1,561 @@
 """
-CSE271 - Hospital Length of Stay Prediction
-Complete ML Pipeline: Regression + Classification (+ Bonus Models)
-Dataset: Microsoft Hospital LOS Dataset (Kaggle - aayushchou)
+CSE271 - Hospital Length-of-Stay Prediction
+
+This script is the source of truth for the project:
+1. Load and clean LengthOfStay.csv
+2. Train regression and classification models with leak-safe preprocessing
+3. Save trained model pipelines, metrics, feature importance, and plots
+
+Run:
+    python models.py
 """
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import seaborn as sns
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.tree import DecisionTreeRegressor, export_text
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
-from sklearn.neural_network import MLPClassifier
-from sklearn.metrics import (
-    r2_score, mean_squared_error, mean_absolute_error,
-    accuracy_score, precision_score, recall_score, f1_score,
-    confusion_matrix, classification_report, roc_auc_score
-)
-import xgboost as xgb
-import warnings
-warnings.filterwarnings('ignore')
+from __future__ import annotations
 
-# ─────────────────────────────────────────────
-# 1. LOAD & INSPECT DATA
-# ─────────────────────────────────────────────
-def load_data(filepath="LengthOfStay.csv"):
+import json
+from pathlib import Path
+
+import joblib
+import matplotlib
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import xgboost as xgb
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    mean_absolute_error,
+    mean_squared_error,
+    precision_score,
+    r2_score,
+    recall_score,
+)
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.svm import LinearSVC
+from sklearn.tree import DecisionTreeRegressor
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+
+DATA_PATH = Path("LengthOfStay.csv")
+PLOTS_DIR = Path("plots")
+MODELS_DIR = Path("saved_models")
+TARGET = "lengthofstay"
+DROP_COLUMNS = ["eid", "vdate", "discharged", "facid"]
+CLASS_LABELS = {
+    0: "Short (0-3d)",
+    1: "Medium (4-7d)",
+    2: "Long (8+d)",
+}
+
+
+def ensure_dirs() -> None:
+    PLOTS_DIR.mkdir(exist_ok=True)
+    MODELS_DIR.mkdir(exist_ok=True)
+
+
+def load_data(filepath: Path = DATA_PATH) -> pd.DataFrame:
     df = pd.read_csv(filepath)
-    print("=" * 60)
+    print("=" * 72)
     print("DATASET OVERVIEW")
-    print("=" * 60)
-    print(f"Shape: {df.shape[0]:,} rows × {df.shape[1]} columns")
-    print(f"\nColumns:\n{df.dtypes}")
-    print(f"\nMissing values:\n{df.isnull().sum()}")
-    print(f"\nFirst 3 rows:\n{df.head(3)}")
+    print("=" * 72)
+    print(f"Shape: {df.shape[0]:,} rows x {df.shape[1]} columns")
+    print(f"Missing values: {int(df.isna().sum().sum())}")
+    print(df.dtypes)
     return df
 
 
-# ─────────────────────────────────────────────
-# 2. PREPROCESSING
-# ─────────────────────────────────────────────
-def preprocess(df):
-    df = df.copy()
+def categorize_los(days: int | float) -> int:
+    if days <= 3:
+        return 0
+    if days <= 7:
+        return 1
+    return 2
 
-    # Drop leakage columns (discharge date leaks the target)
-    drop_cols = ['eid', 'vdate', 'discharged', 'facid']
-    df.drop(columns=[c for c in drop_cols if c in df.columns], inplace=True)
 
-    # Convert Yes/No flags to binary
-    yn_cols = [c for c in df.columns if df[c].dtype == object and
-               set(df[c].dropna().unique()).issubset({'Yes', 'No'})]
-    for col in yn_cols:
-        df[col] = df[col].map({'Yes': 1, 'No': 0})
+def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
+    data = df.copy()
+    data = data.drop(columns=[c for c in DROP_COLUMNS if c in data.columns])
 
-    # Encode remaining categoricals
-    cat_cols = df.select_dtypes(include='object').columns
-    le = LabelEncoder()
-    for col in cat_cols:
-        df[col] = le.fit_transform(df[col].astype(str))
-
-    # Handle missing values
-    df.fillna(df.median(numeric_only=True), inplace=True)
-
-    # ── Regression target: lengthofstay (continuous)
-    y_reg = df['lengthofstay'].copy()
-
-    # ── Classification target: LOS category
-    def categorize_los(days):
-        if days <= 3:   return 0   # Short
-        elif days <= 7: return 1   # Medium
-        else:           return 2   # Long
-
+    y_reg = data[TARGET].copy()
     y_clf = y_reg.apply(categorize_los)
+    X = data.drop(columns=[TARGET])
 
-    # Features (drop target)
-    X = df.drop(columns=['lengthofstay'])
-
-    # Scale features
-    scaler = StandardScaler()
-    X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
-
-    print("\n" + "=" * 60)
-    print("PREPROCESSING COMPLETE")
-    print("=" * 60)
-    print(f"Features: {X.shape[1]}")
-    print(f"LOS distribution — Short(0-3d): {(y_clf==0).sum():,}  "
-          f"Medium(4-7d): {(y_clf==1).sum():,}  Long(8+d): {(y_clf==2).sum():,}")
-
-    return X_scaled, y_reg, y_clf, X.columns.tolist()
+    return X, y_reg, y_clf
 
 
-# ─────────────────────────────────────────────
-# 3. REGRESSION MODELS
-# ─────────────────────────────────────────────
-def run_regression(X, y, feature_names):
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42)
+def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
+    categorical_features = X.select_dtypes(
+        include=["object", "category", "str"]
+    ).columns.tolist()
+    numeric_features = [c for c in X.columns if c not in categorical_features]
 
-    models = {
-        "Linear Regression":         LinearRegression(),
-        "Decision Tree Regressor":   DecisionTreeRegressor(max_depth=6, random_state=42),
-        "Random Forest (BONUS)":     RandomForestRegressor(n_estimators=100, random_state=42),
-        "XGBoost (BONUS)":           xgb.XGBRegressor(n_estimators=100, random_state=42, verbosity=0),
+    numeric_pipeline = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]
+    )
+    categorical_pipeline = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+        ]
+    )
+
+    return ColumnTransformer(
+        transformers=[
+            ("num", numeric_pipeline, numeric_features),
+            ("cat", categorical_pipeline, categorical_features),
+        ]
+    )
+
+
+def model_pipeline(X: pd.DataFrame, estimator) -> Pipeline:
+    return Pipeline(
+        steps=[
+            ("preprocess", build_preprocessor(X)),
+            ("model", estimator),
+        ]
+    )
+
+
+def regression_models(X: pd.DataFrame) -> dict[str, Pipeline]:
+    return {
+        "Linear Regression": model_pipeline(X, LinearRegression()),
+        "Decision Tree": model_pipeline(
+            X, DecisionTreeRegressor(max_depth=8, random_state=42)
+        ),
+        "Random Forest (BONUS)": model_pipeline(
+            X,
+            RandomForestRegressor(
+                n_estimators=120,
+                max_depth=18,
+                min_samples_leaf=2,
+                n_jobs=1,
+                random_state=42,
+            ),
+        ),
+        "XGBoost (BONUS)": model_pipeline(
+            X,
+            xgb.XGBRegressor(
+                n_estimators=180,
+                max_depth=5,
+                learning_rate=0.08,
+                subsample=0.9,
+                colsample_bytree=0.9,
+                objective="reg:squarederror",
+                n_jobs=1,
+                random_state=42,
+                verbosity=0,
+            ),
+        ),
     }
 
-    results = {}
-    print("\n" + "=" * 60)
+
+def classification_models(X: pd.DataFrame) -> dict[str, Pipeline]:
+    return {
+        "Logistic Regression": model_pipeline(
+            X, LogisticRegression(max_iter=1200, random_state=42)
+        ),
+        "KNN": model_pipeline(X, KNeighborsClassifier(n_neighbors=7)),
+        "Linear SVM (BONUS)": model_pipeline(
+            X, LinearSVC(class_weight="balanced", max_iter=4000, random_state=42)
+        ),
+        "Random Forest Classifier (BONUS)": model_pipeline(
+            X,
+            RandomForestClassifier(
+                n_estimators=140,
+                max_depth=18,
+                min_samples_leaf=2,
+                class_weight="balanced",
+                n_jobs=1,
+                random_state=42,
+            ),
+        ),
+        "Neural Network (BONUS)": model_pipeline(
+            X,
+            MLPClassifier(
+                hidden_layer_sizes=(64, 32),
+                early_stopping=True,
+                max_iter=180,
+                random_state=42,
+            ),
+        ),
+    }
+
+
+def evaluate_regression(
+    models: dict[str, Pipeline],
+    X_train: pd.DataFrame,
+    X_test: pd.DataFrame,
+    y_train: pd.Series,
+    y_test: pd.Series,
+) -> tuple[dict[str, dict], str]:
+    results: dict[str, dict] = {}
+    print("\n" + "=" * 72)
     print("REGRESSION RESULTS")
-    print("=" * 60)
+    print("=" * 72)
 
-    for name, model in models.items():
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
-        r2   = r2_score(y_test, preds)
-        rmse = np.sqrt(mean_squared_error(y_test, preds))
-        mae  = mean_absolute_error(y_test, preds)
-        results[name] = {"model": model, "preds": preds,
-                         "R2": r2, "RMSE": rmse, "MAE": mae,
-                         "y_test": y_test}
+    for name, pipeline in models.items():
+        pipeline.fit(X_train, y_train)
+        preds = pipeline.predict(X_test)
+        r2 = r2_score(y_test, preds)
+        rmse = float(np.sqrt(mean_squared_error(y_test, preds)))
+        mae = mean_absolute_error(y_test, preds)
+        results[name] = {
+            "R2": float(r2),
+            "RMSE": float(rmse),
+            "MAE": float(mae),
+            "predictions": preds.tolist(),
+        }
 
-        tag = " ★ BONUS" if "BONUS" in name else ""
-        print(f"\n{name}{tag}")
-        print(f"  R²   = {r2:.4f}  → Model explains {r2*100:.1f}% of LOS variance")
-        print(f"  RMSE = {rmse:.4f} days → Avg prediction error")
-        print(f"  MAE  = {mae:.4f} days → Avg absolute error")
+        print(f"\n{name}")
+        print(f"  R2   = {r2:.4f}")
+        print(f"  RMSE = {rmse:.4f} days")
+        print(f"  MAE  = {mae:.4f} days")
+        print(
+            "  So what? "
+            + (
+                "Strong enough for bed-capacity planning."
+                if r2 >= 0.75
+                else "Useful as a baseline, but not enough for individual planning."
+            )
+        )
 
-        # SO WHAT interpretations
-        if r2 > 0.7:
-            print(f"  ✅ Strong fit. Clinically useful for bed scheduling.")
-        elif r2 > 0.4:
-            print(f"  ⚠️  Moderate fit. Useful for triage, not for individual beds.")
-        else:
-            print(f"  ❌ Weak fit. Social/environmental factors likely missing.")
-
-    # Feature importance from RF
-    rf = results["Random Forest (BONUS)"]["model"]
-    fi = pd.Series(rf.feature_importances_, index=feature_names).sort_values(ascending=False)
-    results["feature_importance"] = fi
-
-    return results, X_test, y_test
+    best_name = max(results, key=lambda n: results[n]["R2"])
+    return results, best_name
 
 
-# ─────────────────────────────────────────────
-# 4. CLASSIFICATION MODELS
-# ─────────────────────────────────────────────
-def run_classification(X, y, feature_names):
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42)
-
-    models = {
-        "Logistic Regression":    LogisticRegression(max_iter=1000, random_state=42),
-        "K-Nearest Neighbors":    KNeighborsClassifier(n_neighbors=5),
-        "SVM (BONUS)":            SVC(kernel='rbf', probability=True, random_state=42),
-        "Neural Network (BONUS)": MLPClassifier(hidden_layer_sizes=(64, 32),
-                                                max_iter=300, random_state=42),
-    }
-
-    results = {}
-    class_labels = ["Short (0-3d)", "Medium (4-7d)", "Long (8+d)"]
-
-    print("\n" + "=" * 60)
+def evaluate_classification(
+    models: dict[str, Pipeline],
+    X_train: pd.DataFrame,
+    X_test: pd.DataFrame,
+    y_train: pd.Series,
+    y_test: pd.Series,
+) -> tuple[dict[str, dict], str]:
+    results: dict[str, dict] = {}
+    print("\n" + "=" * 72)
     print("CLASSIFICATION RESULTS")
-    print("=" * 60)
+    print("=" * 72)
 
-    for name, model in models.items():
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
-        acc  = accuracy_score(y_test, preds)
-        prec = precision_score(y_test, preds, average='weighted', zero_division=0)
-        rec  = recall_score(y_test, preds, average='weighted', zero_division=0)
-        f1   = f1_score(y_test, preds, average='weighted', zero_division=0)
-        cm   = confusion_matrix(y_test, preds)
-        results[name] = {"model": model, "preds": preds, "cm": cm,
-                         "Accuracy": acc, "Precision": prec,
-                         "Recall": rec, "F1": f1, "y_test": y_test}
+    target_names = [CLASS_LABELS[i] for i in sorted(CLASS_LABELS)]
 
-        tag = " ★ BONUS" if "BONUS" in name else ""
-        print(f"\n{name}{tag}")
-        print(f"  Accuracy  = {acc:.4f}")
-        print(f"  Precision = {prec:.4f}")
-        print(f"  Recall    = {rec:.4f}")
-        print(f"  F1-Score  = {f1:.4f}")
+    for name, pipeline in models.items():
+        pipeline.fit(X_train, y_train)
+        preds = pipeline.predict(X_test)
+        cm = confusion_matrix(y_test, preds, labels=[0, 1, 2])
+        acc = accuracy_score(y_test, preds)
+        precision = precision_score(y_test, preds, average="weighted", zero_division=0)
+        recall = recall_score(y_test, preds, average="weighted", zero_division=0)
+        f1 = f1_score(y_test, preds, average="weighted", zero_division=0)
+        long_recall = recall_score(
+            y_test == 2,
+            preds == 2,
+            zero_division=0,
+        )
 
-        # SO WHAT
-        fp_rate = cm[0, 2] / cm[0].sum() if cm[0].sum() > 0 else 0
-        if fp_rate > 0.1:
-            print(f"  ⚠️  {fp_rate*100:.1f}% short-stay patients predicted Long — "
-                  f"wastes {int(fp_rate * cm[0].sum())} beds/batch")
-        print(f"  📋 {classification_report(y_test, preds, target_names=class_labels, zero_division=0)}")
+        results[name] = {
+            "Accuracy": float(acc),
+            "Precision": float(precision),
+            "Recall": float(recall),
+            "F1": float(f1),
+            "LongStayRecall": float(long_recall),
+            "confusion_matrix": cm.tolist(),
+            "predictions": preds.tolist(),
+            "classification_report": classification_report(
+                y_test,
+                preds,
+                target_names=target_names,
+                zero_division=0,
+            ),
+        }
 
-    return results, X_test, y_test
+        print(f"\n{name}")
+        print(f"  Accuracy         = {acc:.4f}")
+        print(f"  Precision        = {precision:.4f}")
+        print(f"  Recall           = {recall:.4f}")
+        print(f"  F1-score         = {f1:.4f}")
+        print(f"  Long-stay recall = {long_recall:.4f}")
+        print("  So what? Long-stay recall matters because missed long stays affect beds.")
+
+    best_name = max(results, key=lambda n: results[n]["F1"])
+    return results, best_name
 
 
-# ─────────────────────────────────────────────
-# 5. VISUALIZATIONS (for report + dashboard)
-# ─────────────────────────────────────────────
-def generate_plots(df_raw, reg_results, clf_results, feature_names):
-    plt.style.use('seaborn-v0_8-darkgrid')
-    colors = ['#2563EB', '#16A34A', '#DC2626', '#D97706']
+def get_feature_names(pipeline: Pipeline) -> list[str]:
+    preprocessor = pipeline.named_steps["preprocess"]
+    return preprocessor.get_feature_names_out().tolist()
 
-    os.makedirs("plots", exist_ok=True)
 
-    # ── Plot 1: LOS Distribution
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.hist(df_raw['lengthofstay'], bins=40, color='#2563EB', edgecolor='white', alpha=0.85)
-    ax.axvline(3, color='#16A34A', linestyle='--', lw=2, label='Short/Medium threshold (3d)')
-    ax.axvline(7, color='#DC2626', linestyle='--', lw=2, label='Medium/Long threshold (7d)')
-    ax.set_xlabel("Length of Stay (days)", fontsize=13)
-    ax.set_ylabel("Patient Count", fontsize=13)
-    ax.set_title("Distribution of Hospital Length of Stay", fontsize=15, fontweight='bold')
-    ax.legend()
+def save_feature_importance(best_regression: Pipeline) -> pd.DataFrame:
+    feature_names = get_feature_names(best_regression)
+    estimator = best_regression.named_steps["model"]
+
+    if hasattr(estimator, "feature_importances_"):
+        values = estimator.feature_importances_
+    elif hasattr(estimator, "coef_"):
+        values = np.abs(estimator.coef_).ravel()
+    else:
+        values = np.zeros(len(feature_names))
+
+    importance = (
+        pd.DataFrame({"Feature": feature_names, "Importance": values})
+        .sort_values("Importance", ascending=False)
+        .reset_index(drop=True)
+    )
+    importance.to_csv(MODELS_DIR / "feature_importance.csv", index=False)
+    return importance
+
+
+def write_artifacts(
+    X: pd.DataFrame,
+    y_test_reg: pd.Series,
+    y_test_clf: pd.Series,
+    reg_results: dict[str, dict],
+    clf_results: dict[str, dict],
+    best_reg_name: str,
+    best_clf_name: str,
+    reg_models: dict[str, Pipeline],
+    clf_models: dict[str, Pipeline],
+    feature_importance: pd.DataFrame,
+) -> None:
+    joblib.dump(reg_models[best_reg_name], MODELS_DIR / "regression_model.pkl")
+    joblib.dump(clf_models[best_clf_name], MODELS_DIR / "classification_model.pkl")
+
+    metadata = {
+        "feature_columns": X.columns.tolist(),
+        "class_labels": CLASS_LABELS,
+        "best_regression_model": best_reg_name,
+        "best_classification_model": best_clf_name,
+    }
+    (MODELS_DIR / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    metrics = {
+        "best_regression_model": best_reg_name,
+        "best_classification_model": best_clf_name,
+        "regression": {
+            name: {k: v for k, v in values.items() if k != "predictions"}
+            for name, values in reg_results.items()
+        },
+        "classification": {
+            name: {k: v for k, v in values.items() if k != "predictions"}
+            for name, values in clf_results.items()
+        },
+    }
+    (MODELS_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+    y_test_reg.to_csv(MODELS_DIR / "y_test_regression.csv", index=False)
+    y_test_clf.to_csv(MODELS_DIR / "y_test_classification.csv", index=False)
+    feature_importance.head(25).to_csv(MODELS_DIR / "top_features.csv", index=False)
+
+
+def generate_plots(
+    df_raw: pd.DataFrame,
+    X_test: pd.DataFrame,
+    y_test_reg: pd.Series,
+    y_test_clf: pd.Series,
+    reg_results: dict[str, dict],
+    clf_results: dict[str, dict],
+    best_reg_name: str,
+    best_clf_name: str,
+    feature_importance: pd.DataFrame,
+) -> None:
+    sns.set_theme(style="whitegrid")
+
+    los_category = df_raw[TARGET].apply(lambda d: CLASS_LABELS[categorize_los(d)])
+
+    plt.figure(figsize=(10, 5))
+    sns.histplot(df_raw[TARGET], bins=30, color="#2563eb")
+    plt.axvline(3, color="#16a34a", linestyle="--", label="Short/Medium threshold")
+    plt.axvline(7, color="#dc2626", linestyle="--", label="Medium/Long threshold")
+    plt.title("Distribution of Hospital Length of Stay")
+    plt.xlabel("Length of Stay (days)")
+    plt.ylabel("Patient Count")
+    plt.legend()
     plt.tight_layout()
-    plt.savefig("plots/01_los_distribution.png", dpi=150)
+    plt.savefig(PLOTS_DIR / "plot_01_los_distribution.png", dpi=150)
     plt.close()
 
-    # ── Plot 2: Regression model comparison
-    names = list(reg_results.keys())
-    r2s   = [reg_results[n]['R2']   for n in names if n != 'feature_importance']
-    rmses = [reg_results[n]['RMSE'] for n in names if n != 'feature_importance']
-    names_clean = [n for n in names if n != 'feature_importance']
+    plt.figure(figsize=(8, 5))
+    los_category.value_counts().reindex(CLASS_LABELS.values()).plot(
+        kind="bar", color=["#16a34a", "#f59e0b", "#dc2626"]
+    )
+    plt.title("LOS Category Breakdown")
+    plt.xlabel("LOS Category")
+    plt.ylabel("Patient Count")
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    plt.savefig(PLOTS_DIR / "plot_02_category_breakdown.png", dpi=150)
+    plt.close()
 
+    numeric = df_raw.select_dtypes(include=np.number)
+    corr_with_target = numeric.corr(numeric_only=True)[TARGET].sort_values()
+    plt.figure(figsize=(9, 6))
+    corr_with_target.drop(TARGET).plot(kind="barh", color="#2563eb")
+    plt.title("Numeric Feature Correlation with LOS")
+    plt.xlabel("Correlation")
+    plt.tight_layout()
+    plt.savefig(PLOTS_DIR / "plot_03_correlations.png", dpi=150)
+    plt.close()
+
+    plt.figure(figsize=(12, 9))
+    sns.heatmap(numeric.corr(numeric_only=True), cmap="RdBu_r", center=0)
+    plt.title("Correlation Heatmap")
+    plt.tight_layout()
+    plt.savefig(PLOTS_DIR / "plot_04_heatmap.png", dpi=150)
+    plt.close()
+
+    reg_df = pd.DataFrame(
+        [
+            {"Model": name, "R2": vals["R2"], "RMSE": vals["RMSE"]}
+            for name, vals in reg_results.items()
+        ]
+    )
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    bars = axes[0].bar(names_clean, r2s, color=colors[:len(names_clean)], edgecolor='white')
-    axes[0].set_title("Regression — R² Score", fontweight='bold')
-    axes[0].set_ylabel("R²")
-    axes[0].set_ylim(0, 1)
-    for bar, val in zip(bars, r2s):
-        axes[0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-                     f"{val:.3f}", ha='center', fontsize=10)
-    axes[0].tick_params(axis='x', rotation=15)
-
-    bars2 = axes[1].bar(names_clean, rmses, color=colors[:len(names_clean)], edgecolor='white')
-    axes[1].set_title("Regression — RMSE (lower = better)", fontweight='bold')
-    axes[1].set_ylabel("RMSE (days)")
-    for bar, val in zip(bars2, rmses):
-        axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
-                     f"{val:.3f}", ha='center', fontsize=10)
-    axes[1].tick_params(axis='x', rotation=15)
+    sns.barplot(data=reg_df, x="Model", y="R2", ax=axes[0], color="#2563eb")
+    sns.barplot(data=reg_df, x="Model", y="RMSE", ax=axes[1], color="#16a34a")
+    axes[0].set_title("Regression R2")
+    axes[1].set_title("Regression RMSE")
+    for ax in axes:
+        ax.tick_params(axis="x", rotation=20)
     plt.tight_layout()
-    plt.savefig("plots/02_regression_comparison.png", dpi=150)
+    plt.savefig(PLOTS_DIR / "plot_05_regression_comparison.png", dpi=150)
     plt.close()
 
-    # ── Plot 3: Classification comparison
-    clf_names = list(clf_results.keys())
-    accs = [clf_results[n]['Accuracy'] for n in clf_names]
-    f1s  = [clf_results[n]['F1']       for n in clf_names]
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    axes[0].bar(clf_names, accs, color=colors[:len(clf_names)], edgecolor='white')
-    axes[0].set_title("Classification — Accuracy", fontweight='bold')
-    axes[0].set_ylim(0, 1)
-    axes[0].tick_params(axis='x', rotation=15)
-
-    axes[1].bar(clf_names, f1s, color=colors[:len(clf_names)], edgecolor='white')
-    axes[1].set_title("Classification — F1 Score (Weighted)", fontweight='bold')
-    axes[1].set_ylim(0, 1)
-    axes[1].tick_params(axis='x', rotation=15)
+    best_reg_preds = np.array(reg_results[best_reg_name]["predictions"])
+    plt.figure(figsize=(7, 6))
+    plt.scatter(y_test_reg, best_reg_preds, alpha=0.25, s=10, color="#2563eb")
+    plt.plot(
+        [y_test_reg.min(), y_test_reg.max()],
+        [y_test_reg.min(), y_test_reg.max()],
+        color="#dc2626",
+        linestyle="--",
+    )
+    plt.title(f"Actual vs Predicted LOS - {best_reg_name}")
+    plt.xlabel("Actual LOS (days)")
+    plt.ylabel("Predicted LOS (days)")
     plt.tight_layout()
-    plt.savefig("plots/03_classification_comparison.png", dpi=150)
+    plt.savefig(PLOTS_DIR / "plot_06_actual_vs_predicted.png", dpi=150)
     plt.close()
 
-    # ── Plot 4: Confusion matrix for best classifier
-    best_clf = max(clf_results, key=lambda k: clf_results[k]['F1'])
-    cm = clf_results[best_clf]['cm']
-    fig, ax = plt.subplots(figsize=(7, 5))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
-                xticklabels=["Short", "Medium", "Long"],
-                yticklabels=["Short", "Medium", "Long"])
-    ax.set_title(f"Confusion Matrix — {best_clf}", fontweight='bold')
-    ax.set_ylabel("Actual")
-    ax.set_xlabel("Predicted")
+    clf_df = pd.DataFrame(
+        [
+            {"Model": name, "Accuracy": vals["Accuracy"], "F1": vals["F1"]}
+            for name, vals in clf_results.items()
+        ]
+    )
+    clf_df.plot(x="Model", y=["Accuracy", "F1"], kind="bar", figsize=(11, 5))
+    plt.title("Classification Model Comparison")
+    plt.ylabel("Score")
+    plt.ylim(0, 1)
+    plt.xticks(rotation=20)
     plt.tight_layout()
-    plt.savefig("plots/04_confusion_matrix.png", dpi=150)
+    plt.savefig(PLOTS_DIR / "plot_07_classification_comparison.png", dpi=150)
     plt.close()
 
-    # ── Plot 5: Feature Importance
-    fi = reg_results['feature_importance'].head(12)
-    fig, ax = plt.subplots(figsize=(10, 6))
-    fi.sort_values().plot(kind='barh', ax=ax, color='#2563EB', edgecolor='white')
-    ax.set_title("Top 12 Features Driving LOS (Random Forest)", fontweight='bold')
-    ax.set_xlabel("Importance Score")
+    cm = np.array(clf_results[best_clf_name]["confusion_matrix"])
+    plt.figure(figsize=(7, 5))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=[CLASS_LABELS[i] for i in sorted(CLASS_LABELS)],
+        yticklabels=[CLASS_LABELS[i] for i in sorted(CLASS_LABELS)],
+    )
+    plt.title(f"Confusion Matrix - {best_clf_name}")
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
     plt.tight_layout()
-    plt.savefig("plots/05_feature_importance.png", dpi=150)
+    plt.savefig(PLOTS_DIR / "plot_08_confusion_matrices.png", dpi=150)
     plt.close()
 
-    # ── Plot 6: Scatter — actual vs predicted (best regression)
-    best_reg = max((k for k in reg_results if k != 'feature_importance'),
-                   key=lambda k: reg_results[k]['R2'])
-    y_test = reg_results[best_reg]['y_test']
-    preds  = reg_results[best_reg]['preds']
-    fig, ax = plt.subplots(figsize=(7, 6))
-    ax.scatter(y_test, preds, alpha=0.3, s=10, color='#2563EB')
-    ax.plot([y_test.min(), y_test.max()],
-            [y_test.min(), y_test.max()], 'r--', lw=2)
-    ax.set_xlabel("Actual LOS (days)")
-    ax.set_ylabel("Predicted LOS (days)")
-    ax.set_title(f"Actual vs Predicted — {best_reg}", fontweight='bold')
+    top_features = feature_importance.head(15).sort_values("Importance")
+    plt.figure(figsize=(10, 7))
+    plt.barh(top_features["Feature"], top_features["Importance"], color="#2563eb")
+    plt.title("Top Features Driving LOS")
+    plt.xlabel("Importance")
     plt.tight_layout()
-    plt.savefig("plots/06_actual_vs_predicted.png", dpi=150)
+    plt.savefig(PLOTS_DIR / "plot_09_feature_importance.png", dpi=150)
     plt.close()
 
-    print("\n✅ All plots saved to /plots/")
 
+def main() -> None:
+    ensure_dirs()
+    df = load_data()
+    X, y_reg, y_clf = prepare_features(df)
 
-# ─────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────
-import os
+    print("\n" + "=" * 72)
+    print("PREPROCESSING PLAN")
+    print("=" * 72)
+    print(f"Features used: {X.shape[1]}")
+    print("Categorical columns are one-hot encoded; numeric columns are imputed and scaled.")
+    print("Preprocessing is fitted inside each model pipeline after train/test split.")
+
+    X_train, X_test, y_reg_train, y_reg_test, y_clf_train, y_clf_test = train_test_split(
+        X,
+        y_reg,
+        y_clf,
+        test_size=0.2,
+        random_state=42,
+        stratify=y_clf,
+    )
+
+    reg_models = regression_models(X)
+    clf_models = classification_models(X)
+
+    reg_results, best_reg_name = evaluate_regression(
+        reg_models, X_train, X_test, y_reg_train, y_reg_test
+    )
+    clf_results, best_clf_name = evaluate_classification(
+        clf_models, X_train, X_test, y_clf_train, y_clf_test
+    )
+
+    feature_importance = save_feature_importance(reg_models[best_reg_name])
+    write_artifacts(
+        X,
+        y_reg_test,
+        y_clf_test,
+        reg_results,
+        clf_results,
+        best_reg_name,
+        best_clf_name,
+        reg_models,
+        clf_models,
+        feature_importance,
+    )
+    generate_plots(
+        df,
+        X_test,
+        y_reg_test,
+        y_clf_test,
+        reg_results,
+        clf_results,
+        best_reg_name,
+        best_clf_name,
+        feature_importance,
+    )
+
+    print("\n" + "=" * 72)
+    print("PIPELINE COMPLETE")
+    print("=" * 72)
+    print(f"Best regression model: {best_reg_name}")
+    print(f"Best classification model: {best_clf_name}")
+    print(f"Saved trained models and metrics to: {MODELS_DIR.resolve()}")
+    print(f"Saved plots to: {PLOTS_DIR.resolve()}")
+
 
 if __name__ == "__main__":
-    # ── Load
-    df = load_data("LengthOfStay.csv")
-
-    # ── Preprocess
-    X, y_reg, y_clf, feature_names = preprocess(df)
-
-    # ── Regression
-    reg_results, X_test_reg, y_test_reg = run_regression(X, y_reg, feature_names)
-
-    # ── Classification
-    clf_results, X_test_clf, y_test_clf = run_classification(X, y_clf, feature_names)
-
-    # ── Plots
-    generate_plots(df, reg_results, clf_results, feature_names)
-
-    print("\n" + "=" * 60)
-    print("✅ PIPELINE COMPLETE — check /plots/ for all visualizations")
-    print("=" * 60)
+    main()

@@ -1,0 +1,34 @@
+{
+  "feature_columns": [
+    "rcount",
+    "gender",
+    "dialysisrenalendstage",
+    "asthma",
+    "irondef",
+    "pneum",
+    "substancedependence",
+    "psychologicaldisordermajor",
+    "depress",
+    "psychother",
+    "fibrosisandother",
+    "malnutrition",
+    "hemo",
+    "hematocrit",
+    "neutrophils",
+    "sodium",
+    "glucose",
+    "bloodureanitro",
+    "creatinine",
+    "bmi",
+    "pulse",
+    "respiration",
+    "secondarydiagnosisnonicd9"
+  ],
+  "class_labels": {
+    "0": "Short (0-3d)",
+    "1": "Medium (4-7d)",
+    "2": "Long (8+d)"
+  },
+  "best_regression_model": "XGBoost (BONUS)",
+  "best_classification_model": "Neural Network (BONUS)"
+}

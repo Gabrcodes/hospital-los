@@ -36,9 +36,9 @@ cd "$APP_DIR"
 .venv/bin/pip install --quiet --upgrade pip
 .venv/bin/pip install --quiet -r requirements.txt
 
-echo "==> Training models (one-shot, generates models/*.pkl)"
-if [ ! -f models/regressor.pkl ]; then
-  .venv/bin/python report_ieee/regenerate_figures.py
+echo "==> Training models (one-shot, generates saved_models/*.pkl and plots/*.png)"
+if [ ! -f saved_models/regression_model.pkl ]; then
+  .venv/bin/python models.py
 fi
 
 echo "==> Installing systemd unit for Streamlit"

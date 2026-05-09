@@ -1,0 +1,15 @@
+__DOMAIN__ {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8501 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        # Streamlit uses websockets for live updates
+        flush_interval -1
+    }
+    log {
+        output file /var/log/caddy/access.log
+        format console
+    }
+}

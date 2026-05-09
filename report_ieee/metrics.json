@@ -1,0 +1,77 @@
+{
+  "regression": {
+    "Linear Regression": {
+      "R2": 0.7522034845769983,
+      "RMSE": 1.1660652404062453,
+      "MAE": 0.891120351592645
+    },
+    "Decision Tree": {
+      "R2": 0.7633100866862954,
+      "RMSE": 1.1396332909687976,
+      "MAE": 0.8855886394236306
+    },
+    "Random Forest (BONUS)": {
+      "R2": 0.9276736776319391,
+      "RMSE": 0.6299751860192591,
+      "MAE": 0.3798975
+    },
+    "XGBoost (BONUS)": {
+      "R2": 0.96237713098526,
+      "RMSE": 0.45436118302988604,
+      "MAE": 0.33853021264076233
+    }
+  },
+  "classification": {
+    "Logistic Regression": {
+      "Accuracy": 0.8105,
+      "Precision": 0.80836264614829,
+      "Recall": 0.8105,
+      "F1": 0.8045892413240556
+    },
+    "K-Nearest Neighbors": {
+      "Accuracy": 0.8036,
+      "Precision": 0.8043432783608184,
+      "Recall": 0.8036,
+      "F1": 0.7892851940192409
+    },
+    "SVM (BONUS)": {
+      "Accuracy": 0.87485,
+      "Precision": 0.8733419478944073,
+      "Recall": 0.87485,
+      "F1": 0.872283922123592
+    },
+    "Neural Network (BONUS)": {
+      "Accuracy": 0.90835,
+      "Precision": 0.9079034119736805,
+      "Recall": 0.90835,
+      "F1": 0.907725862836755
+    }
+  },
+  "confusion_matrix_best": {
+    "model": "Neural Network (BONUS)",
+    "matrix": [
+      [
+        8752,
+        588,
+        0
+      ],
+      [
+        518,
+        8206,
+        257
+      ],
+      [
+        0,
+        470,
+        1209
+      ]
+    ]
+  },
+  "class_distribution": {
+    "short": 46872,
+    "medium": 44563,
+    "long": 8565
+  },
+  "n_rows": 100000,
+  "n_features": 23
+}

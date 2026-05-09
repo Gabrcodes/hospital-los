@@ -400,7 +400,7 @@ Future directions follow directly from the limitations above: synthetic minority
 \appendix
 \section{AI Tool Usage Log}
 \label{app:ai}
-As required by the CSE271 project guidelines (Note~4), every AI-assisted interaction during this project is documented in Table~\ref{tab:ai_log}. The \emph{Use level} column expresses how heavily the AI output was relied on: \textbf{L} = light, used only for clarification or conceptual check; \textbf{M} = moderate, AI provided structural assistance that the team subsequently edited substantially. No session was used at a heavy reliance level. Screenshots evidencing the prompt, the AI response, and an example of how the team edited or refined the output are attached to the submission archive as \texttt{ai\_session\_01.png} through \texttt{ai\_session\_05.png}.
+As required by the CSE271 project guidelines (Note~4), every AI-assisted interaction during this project is documented in Table~\ref{tab:ai_log}. The \emph{Use level} column expresses how heavily the AI output was relied on: \textbf{L} = light, used only for clarification or conceptual check; \textbf{M} = moderate, AI provided structural assistance that the team subsequently edited substantially. No session was used at a heavy reliance level. Representative prompt-and-response screenshots are embedded at the end of this appendix as Figures~\ref{fig:ai01}--\ref{fig:ai04}; the full transcript of the long-running Claude session that supported the report-drafting and AWS-deployment phases is publicly viewable at \url{https://claude.ai/share/181ca1d0-670e-4381-90ff-4ef0c4a85974}.
 
 \begin{table}[!h]
 \caption{AI-tool usage log.}
@@ -421,5 +421,35 @@ As required by the CSE271 project guidelines (Note~4), every AI-assisted interac
 \end{table}
 
 \noindent\textbf{Audit trail.} Every numerical claim in the abstract, tables, and body text of this report was re-derived by running \texttt{regenerate\_figures.py} from the project codebase, which writes the executed pipeline metrics to \texttt{report\_ieee/metrics.json}. The \LaTeX{} document loads these values via auto-generated macros (\texttt{metrics.tex}); no headline number is hand-typed. Abdelrahman Gabr, as the report author and auditor, verified that every value in this report --- including XGBoost $R^{2}=$\REGBESTRTWO, the MLP weighted F1-score of \CLFBESTFONE, and the \DCLONGPCT{} Long-class share --- matches the \texttt{metrics.json} file in the submission archive.
+
+\subsection*{Conversation Screenshots}
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.95\textwidth]{ai_session_01.png}
+\caption{AI session 1 (Claude). Deployment progress check during the AWS rollout: live URL verification, headline numbers from the new pipeline run, and confirmation that the Streamlit ``Patient Predictor'' tab now drives real joblib-loaded inference. Output was reviewed and the deployment workflow was confirmed by the team.}
+\label{fig:ai01}
+\end{figure}
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.95\textwidth]{ai_session_02.png}
+\caption{AI session 2 (Claude). Editorial feedback round on the technical report: the team flagged that the report was ``too wordy, very crowded and messy'' and asked for a tightening pass. Claude's diagnosis (caption-then-paragraph repetition, 6-objective lists, oversized conclusion scaffolding) was used as a checklist; the actual rewrites and final wording were authored by the team.}
+\label{fig:ai02}
+\end{figure}
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.95\textwidth]{ai_session_03.png}
+\caption{AI session 3 (Claude). Discussion of report layout options: the team asked whether two-column IEEE conference style was the right choice for a course technical report. Claude summarised the trade-offs (float drift, narrow columns crushing tables); the final decision to switch to a single-column \texttt{article} layout with IEEE bibliography was made by the team.}
+\label{fig:ai03}
+\end{figure}
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.95\textwidth]{ai_session_04.png}
+\caption{AI session 4 (Claude). Bibliography validation: the team asked Claude to audit each citation in \texttt{references.bib} against real publications. The audit identified two fabricated references in an earlier draft (a 2024 BMC ``Barnes et al.''\ that did not exist, and a 2024 \emph{Applied Sciences} attribution to Turgeman et al.\ that was actually authored by Almeida et al.). All replacements were verified by the team via web search before being committed to \texttt{references.bib}.}
+\label{fig:ai04}
+\end{figure}
 
 \end{document}

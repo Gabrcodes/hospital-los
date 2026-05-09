@@ -179,7 +179,7 @@ Open the local URL printed in the terminal (typically `http://localhost:8501`).
 
 ---
 
-## 🤖 Models
+## Models
 
 ### Regression (target: LOS in days)
 
